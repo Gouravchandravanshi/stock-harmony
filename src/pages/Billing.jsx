@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { Receipt, FileText, Plus, Printer, Download, Search, User, Phone, MapPin, Calendar, IndianRupee, Trash2, CheckCircle } from 'lucide-react';
+import { Receipt, FileText, Plus, Printer, Download, Search, User, Phone, MapPin, Calendar, IndianRupee, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { mockProducts } from '@/data/mockData';
 import { toast } from 'sonner';
+import { productAPI, billAPI } from '@/services/api';
 
 export default function Billing() {
   const [billType, setBillType] = useState('kaccha');
@@ -22,43 +22,91 @@ export default function Billing() {
   const [searchProduct, setSearchProduct] = useState('');
   const [items, setItems] = useState([]);
   const [showProductSearch, setShowProductSearch] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const filteredProducts = mockProducts.filter(p => 
-    p.name.toLowerCase().includes(searchProduct.toLowerCase()) ||
-    p.company.toLowerCase().includes(searchProduct.toLowerCase())
-  );
+  // Fetch products on mount
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      const data = await productAPI.getAll();
+      setProducts(data);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      toast.error('Failed to load products');
+    }
+  };
+
+  const filteredProducts = products.filter(p => {
+    if (!searchProduct) return false;
+    return (
+      p.name.toLowerCase().includes(searchProduct.toLowerCase()) ||
+      p.company.toLowerCase().includes(searchProduct.toLowerCase())
+    );
+  });
 
   const addItem = (productId) => {
-    const product = mockProducts.find(p => p.id === productId);
-    if (!product) return;
+    const product = products.find(p => p._id === productId);
+    if (!product) {
+      toast.error('Product not found');
+      return;
+    }
+
+    // Check stock
+    if (product.quantity <= 0) {
+      toast.error('Product out of stock');
+      return;
+    }
 
     const rate = paymentMode === 'Cash' ? product.sellingPriceCash : product.sellingPriceUdhaar;
     const existingItem = items.find(item => item.productId === productId);
 
     if (existingItem) {
+      if (existingItem.quantity >= product.quantity) {
+        toast.error('Not enough stock available');
+        return;
+      }
       setItems(items.map(item => 
         item.productId === productId 
-          ? { ...item, quantity: item.quantity + 1, total: (item.quantity + 1) * item.rate }
+          ? { 
+              ...item, 
+              quantity: item.quantity + 1, 
+              total: (item.quantity + 1) * item.rate 
+            }
           : item
       ));
+      toast.success('Quantity increased');
     } else {
       setItems([...items, {
         productId,
         productName: product.name,
+        company: product.company,
         quantity: 1,
         rate,
         total: rate,
       }]);
+      toast.success(`${product.name} added to bill`);
     }
     setSearchProduct('');
     setShowProductSearch(false);
   };
 
   const updateItemQuantity = (productId, quantity) => {
+    const product = products.find(p => p._id === productId);
+    
     if (quantity <= 0) {
       removeItem(productId);
       return;
     }
+
+    if (quantity > product.quantity) {
+      toast.error(`Only ${product.quantity} items available in stock`);
+      return;
+    }
+
     setItems(items.map(item =>
       item.productId === productId
         ? { ...item, quantity, total: quantity * item.rate }
@@ -67,14 +115,18 @@ export default function Billing() {
   };
 
   const removeItem = (productId) => {
+    const item = items.find(i => i.productId === productId);
     setItems(items.filter(item => item.productId !== productId));
+    if (item) {
+      toast.success(`${item.productName} removed from bill`);
+    }
   };
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const gstAmount = billType === 'pakka' ? subtotal * 0.18 : 0;
   const total = subtotal + gstAmount;
 
-  const handleGenerateBill = () => {
+  const handleGenerateBill = async () => {
     if (items.length === 0) {
       toast.error('Please add at least one product');
       return;
@@ -84,43 +136,50 @@ export default function Billing() {
       return;
     }
 
-    // Generate bill number
-    const billNumber = `${billType === 'kaccha' ? 'KB' : 'PB'}-${Date.now()}`;
-    
-    // Create bill object
-    const bill = {
-      id: Date.now().toString(),
-      billNumber,
-      billType,
-      customer: {
-        id: `c${Date.now()}`,
-        name: customer.name,
-        mobile: customer.mobile,
-        address: customer.address || '',
-      },
-      items: [...items],
-      paymentMode,
-      dueDate: paymentMode === 'Udhaar' && dueDate ? new Date(dueDate) : undefined,
-      subtotal,
-      gstAmount: billType === 'pakka' ? gstAmount : 0,
-      total,
-      createdAt: new Date(),
-      status: paymentMode === 'Cash' ? 'paid' : 'pending',
-    };
+    try {
+      setLoading(true);
+      
+      // Generate bill number
+      const billNumber = `${billType === 'kaccha' ? 'KB' : 'PB'}-${Date.now()}`;
+      
+      // Create bill object
+      const bill = {
+        billNumber,
+        billType,
+        customer: {
+          id: `c${Date.now()}`,
+          name: customer.name,
+          mobile: customer.mobile,
+          address: customer.address || '',
+        },
+        items: [...items],
+        paymentMode,
+        dueDate: paymentMode === 'Udhaar' && dueDate ? new Date(dueDate) : null,
+        subtotal,
+        gst: billType === 'pakka' ? gstAmount : 0,
+        total,
+      };
 
-    // Save to localStorage
-    const savedBills = JSON.parse(localStorage.getItem('bills') || '[]');
-    savedBills.push(bill);
-    localStorage.setItem('bills', JSON.stringify(savedBills));
+      // Save to backend
+      await billAPI.create(bill);
+      
+      // Show success message
+      toast.success(`${billType === 'kaccha' ? 'Kaccha' : 'Pakka'} Bill generated successfully!`);
 
-    // Show success message
-    toast.success(`${billType === 'kaccha' ? 'Kaccha' : 'Pakka'} Bill generated successfully!`);
-
-    // Reset form
-    setItems([]);
-    setCustomer({ name: '', mobile: '', address: '' });
-    setDueDate('');
-    setSearchProduct('');
+      // Reset form
+      setItems([]);
+      setCustomer({ name: '', mobile: '', address: '' });
+      setDueDate('');
+      setSearchProduct('');
+      
+      // Refresh products in case of quantity updates
+      fetchProducts();
+    } catch (error) {
+      console.error('Error generating bill:', error);
+      toast.error('Failed to generate bill');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDownloadBill = () => {
@@ -184,7 +243,12 @@ ${paymentMode === 'Udhaar' && dueDate ? `Due Date: ${new Date(dueDate).toLocaleD
     }
 
     const printWindow = window.open('', '_blank');
-    const billNumber = `${billType === 'kaccha' ? 'KB' : 'PB'}-${Date.now()}`;
+    const billNumber = `${Date.now()}`;
+    const currentDate = new Date().toLocaleDateString('en-IN');
+    
+    // Kaccha Bill (Pink) or Pakka Bill (Yellow) format
+    const backgroundColor = billType === 'kaccha' ? '#FFB6D9' : '#FFF4B3';
+    const borderColor = billType === 'kaccha' ? '#FF69B4' : '#FFD700';
     
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -192,53 +256,215 @@ ${paymentMode === 'Udhaar' && dueDate ? `Due Date: ${new Date(dueDate).toLocaleD
       <head>
         <title>Bill ${billNumber}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 20px; }
-          .bill-header { text-align: center; margin-bottom: 20px; }
-          .bill-details { margin-bottom: 20px; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-          th { background-color: #f2f2f2; }
-          .total { font-weight: bold; margin-top: 10px; }
+          @page { 
+            size: A5; 
+            margin: 0; 
+          }
+          body { 
+            font-family: Arial, sans-serif; 
+            padding: 15px;
+            margin: 0;
+            background-color: ${backgroundColor};
+          }
+          .bill-container {
+            border: 2px solid ${borderColor};
+            padding: 10px;
+            background-color: ${backgroundColor};
+          }
+          .header {
+            text-align: center;
+            border-bottom: 2px solid black;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+          }
+          .header h2 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: bold;
+          }
+          .header p {
+            margin: 2px 0;
+            font-size: 10px;
+          }
+          .bill-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 11px;
+          }
+          .customer-info {
+            border: 1px solid black;
+            padding: 8px;
+            margin-bottom: 10px;
+            font-size: 11px;
+          }
+          .customer-info p {
+            margin: 3px 0;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 11px;
+          }
+          th, td {
+            border: 1px solid black;
+            padding: 5px;
+            text-align: left;
+          }
+          th {
+            background-color: rgba(0,0,0,0.1);
+            font-weight: bold;
+          }
+          .total-section {
+            margin-top: 10px;
+            text-align: right;
+            font-size: 12px;
+          }
+          .total-row {
+            display: flex;
+            justify-content: flex-end;
+            margin: 5px 0;
+          }
+          .total-label {
+            width: 100px;
+            text-align: right;
+            padding-right: 10px;
+          }
+          .total-value {
+            width: 100px;
+            text-align: right;
+            font-weight: bold;
+          }
+          .footer {
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid black;
+            font-size: 9px;
+          }
+          .signature {
+            text-align: right;
+            margin-top: 30px;
+            font-size: 11px;
+          }
+          .terms {
+            font-size: 8px;
+            margin-top: 10px;
+            line-height: 1.3;
+          }
         </style>
       </head>
       <body>
-        <div class="bill-header">
-          <h1>BILL ${billType === 'pakka' ? '(GST INVOICE)' : ''}</h1>
-          <p>Bill Number: ${billNumber}</p>
-          <p>Date: ${new Date().toLocaleDateString('en-IN')}</p>
-        </div>
-        <div class="bill-details">
-          <h3>Customer Details:</h3>
-          <p>Name: ${customer.name}</p>
-          <p>Mobile: ${customer.mobile}</p>
-          ${customer.address ? `<p>Address: ${customer.address}</p>` : ''}
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Qty</th>
-              <th>Rate</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map(item => `
+        <div class="bill-container">
+          <div class="header">
+            <p style="font-size: 12px; margin: 0;">|| श्री गणेशाय नमः ||</p>
+            <h2>राज कृषि सेवा केन्द्र</h2>
+            <p>${billType === 'pakka' ? 'कीटनाशक दवाईयों एवं खाद बीज के विकेता' : ''}</p>
+            <p>${billType === 'pakka' ? 'राम मन्दिर के सामने, ग्राम-चांया, तहसील-रेहटी, जिला-सीहोर (म.प्र.)' : 'बस स्टैंड के पास मेन रोड बामा, तह-रेहटी, जिला-सीहोर'}</p>
+            <p style="font-size: 9px;">Mo.No.: 8878596230</p>
+            ${billType === 'pakka' ? '<p style="font-size: 9px;">GSTIN: 23BGAPC9885P1ZT</p>' : ''}
+          </div>
+
+          <div class="bill-info">
+            <div>
+              <strong>${billType === 'kaccha' ? 'बिल/कैशमेमो' : 'बिल / कैश मेमो'}</strong>
+            </div>
+            <div style="text-align: right;">
+              <div><strong>क्रमांक:</strong> ${billNumber}</div>
+              <div><strong>दिनांक:</strong> ${currentDate}</div>
+            </div>
+          </div>
+
+          <div class="customer-info">
+            <p><strong>श्रीमान्:</strong> ${customer.name}</p>
+            <p><strong>पता:</strong> ${customer.address || ''}</p>
+            <p><strong>मो.नं.:</strong> ${customer.mobile}</p>
+          </div>
+
+          <table>
+            <thead>
               <tr>
-                <td>${item.productName}</td>
-                <td>${item.quantity}</td>
-                <td>₹${item.rate}</td>
-                <td>₹${item.total}</td>
+                <th style="width: 8%;">क्र.</th>
+                <th style="width: 40%;">विवरण</th>
+                ${billType === 'pakka' ? '<th style="width: 12%;">बैच नं.</th>' : ''}
+                ${billType === 'pakka' ? '<th style="width: 12%;">मेनू. दिनांक</th>' : ''}
+                ${billType === 'pakka' ? '<th style="width: 12%;">एक्स. दिनांक</th>' : ''}
+                <th style="width: ${billType === 'pakka' ? '8%' : '15%'};">${billType === 'pakka' ? 'संख्या/' : ''}मात्रा</th>
+                ${billType === 'pakka' ? '<th style="width: 10%;">भाव</th>' : ''}
+                <th style="width: ${billType === 'pakka' ? '8%' : '15%'};">${billType === 'pakka' ? 'दर' : 'कीमत'}</th>
+                ${billType === 'kaccha' ? '' : '<th style="width: 12%;">कीमत</th>'}
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        <div class="total">
-          <p>Subtotal: ₹${subtotal.toLocaleString()}</p>
-          ${billType === 'pakka' ? `<p>GST (18%): ₹${gstAmount.toLocaleString()}</p>` : ''}
-          <p>Total: ₹${total.toLocaleString()}</p>
-          <p>Payment Mode: ${paymentMode}</p>
-          ${paymentMode === 'Udhaar' && dueDate ? `<p>Due Date: ${new Date(dueDate).toLocaleDateString('en-IN')}</p>` : ''}
+            </thead>
+            <tbody>
+              ${items.map((item, idx) => `
+                <tr>
+                  <td style="text-align: center;">${idx + 1}</td>
+                  <td>${item.productName}<br/><small>${item.company}</small></td>
+                  ${billType === 'pakka' ? '<td></td>' : ''}
+                  ${billType === 'pakka' ? '<td></td>' : ''}
+                  ${billType === 'pakka' ? '<td></td>' : ''}
+                  <td style="text-align: center;">${item.quantity}</td>
+                  ${billType === 'pakka' ? `<td style="text-align: right;">₹${item.rate}</td>` : ''}
+                  <td style="text-align: right;">₹${billType === 'kaccha' ? item.rate : item.total}</td>
+                  ${billType === 'kaccha' ? '' : `<td style="text-align: right;">₹${item.total}</td>`}
+                </tr>
+              `).join('')}
+              ${billType === 'kaccha' ? '' : `
+                <tr>
+                  <td colspan="${billType === 'pakka' ? '7' : '4'}" style="text-align: right;"><strong>Total</strong></td>
+                  <td style="text-align: right;"><strong>₹${subtotal}</strong></td>
+                </tr>
+                <tr>
+                  <td colspan="${billType === 'pakka' ? '7' : '4'}" style="text-align: right;"><strong>CGST</strong></td>
+                  <td style="text-align: right;"><strong>₹${(gstAmount/2).toFixed(2)}</strong></td>
+                </tr>
+                <tr>
+                  <td colspan="${billType === 'pakka' ? '7' : '4'}" style="text-align: right;"><strong>SGST</strong></td>
+                  <td style="text-align: right;"><strong>₹${(gstAmount/2).toFixed(2)}</strong></td>
+                </tr>
+                <tr>
+                  <td colspan="${billType === 'pakka' ? '7' : '4'}" style="text-align: right;"><strong>G. Total</strong></td>
+                  <td style="text-align: right;"><strong>₹${total}</strong></td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+
+          ${billType === 'kaccha' ? `
+            <div class="total-section">
+              <div class="total-row">
+                <div class="total-label">योग:</div>
+                <div class="total-value">₹${total.toLocaleString()}</div>
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="footer">
+            <p style="margin: 5px 0;"><strong>वास्ते :</strong> राज कृषि सेवा केन्द्र</p>
+            <div class="signature">
+              <p style="margin: 5px 0;"><strong>प्रोपराईटर</strong></p>
+            </div>
+          </div>
+
+          <div class="terms">
+            <p style="margin: 2px 0;"><strong>हस्ताक्षर ग्राहक</strong></p>
+            ${billType === 'kaccha' ? `
+              <p style="margin: 2px 0;">1. बिना हस्ता वाल वापिस नहीं होगा।</p>
+              <p style="margin: 2px 0;">2. माल के अनुसार ही कम्पनी द्वारा माल वेचा गया है। कृपया माल की जिम्मेदारी से पूर्व कम्पनी बन्द सील अबश्य देख लें।</p>
+              <p style="margin: 2px 0;">3. हमने यह माल उसपात द्वारा उसकी द्वारा अधिकृत विक्रेता से खरीदा है। इसका उत्पादन उपयोग व रखरखाव कृषि हमारे नियन्त्रण में नहीं अतः हमारी किसी तरह की जिम्मेदारी नहीं होगी।</p>
+              <p style="margin: 2px 0;">4. वे वस्तुयें (दवाई) खाने योग्य नहीं है। 5. समय पर भुगतान न होने पर 3% ब्याज देना होगा।</p>
+              <p style="margin: 2px 0;">5. सभी प्रसादी का न्याय क्षेत्र बदनी रहेगा।</p>
+            ` : `
+              <p style="margin: 2px 0;">★ भूल-चूक लेनी देनी।</p>
+              <p style="margin: 2px 0;">★ क्वालिटी की गारंटी कम्पनी की है उपयोग करने पर हमारा निवरचन नहीं होने से परिणाम की कोई गारंटी नहीं है।</p>
+              <p style="margin: 2px 0;">★ 8 दिन में भुगतान प्राप्त न होने की दशा में 2 प्रतिशत ब्याज देना होगा।</p>
+            `}
+          </div>
+
+          <div style="margin-top: 10px; font-size: 10px;">
+            <p style="margin: 2px 0;"><strong>Payment Mode:</strong> ${paymentMode}</p>
+            ${paymentMode === 'Udhaar' && dueDate ? `<p style="margin: 2px 0;"><strong>Due Date (कब देगा):</strong> ${new Date(dueDate).toLocaleDateString('en-IN')}</p>` : ''}
+          </div>
         </div>
       </body>
       </html>
@@ -377,7 +603,7 @@ ${paymentMode === 'Udhaar' && dueDate ? `Due Date: ${new Date(dueDate).toLocaleD
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search products..."
+                      placeholder="Search products by name or company..."
                       value={searchProduct}
                       onChange={(e) => {
                         setSearchProduct(e.target.value);
@@ -393,26 +619,26 @@ ${paymentMode === 'Udhaar' && dueDate ? `Due Date: ${new Date(dueDate).toLocaleD
                         {filteredProducts.length > 0 ? (
                           filteredProducts.map(product => (
                             <button
-                              key={product.id}
-                              className="w-full px-4 py-3 text-left hover:bg-muted transition-colors flex justify-between items-center"
-                              onClick={() => addItem(product.id)}
+                              key={product._id}
+                              className="w-full px-4 py-3 text-left hover:bg-muted transition-colors flex justify-between items-center border-b last:border-b-0"
+                              onClick={() => addItem(product._id)}
                             >
-                              <div>
+                              <div className="flex-1">
                                 <p className="font-medium text-foreground">{product.name}</p>
                                 <p className="text-sm text-muted-foreground">{product.company}</p>
                               </div>
-                              <div className="text-right">
+                              <div className="text-right ml-4">
                                 <p className="font-semibold text-foreground">
-                                  ₹{paymentMode === 'Cash' ? product.sellingPriceCash : product.sellingPriceUdhaar}
+                                  ₹{(paymentMode === 'Cash' ? product.sellingPriceCash : product.sellingPriceUdhaar).toLocaleString()}
                                 </p>
-                                <p className="text-xs text-muted-foreground">
+                                <p className={`text-xs font-medium ${product.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                   Stock: {product.quantity}
                                 </p>
                               </div>
                             </button>
                           ))
                         ) : (
-                          <p className="px-4 py-3 text-muted-foreground text-center">
+                          <p className="px-4 py-6 text-muted-foreground text-center">
                             No products found
                           </p>
                         )}
@@ -422,37 +648,42 @@ ${paymentMode === 'Udhaar' && dueDate ? `Due Date: ${new Date(dueDate).toLocaleD
 
                   {/* Items Table */}
                   {items.length > 0 && (
-                    <div className="mt-6 overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th className="text-left py-3 text-sm font-medium text-muted-foreground">Product</th>
-                            <th className="text-center py-3 text-sm font-medium text-muted-foreground">Qty</th>
-                            <th className="text-right py-3 text-sm font-medium text-muted-foreground">Rate</th>
-                            <th className="text-right py-3 text-sm font-medium text-muted-foreground">Total</th>
-                            <th className="text-center py-3 text-sm font-medium text-muted-foreground"></th>
+                    <div className="mt-6 border border-border rounded-lg overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted border-b border-border">
+                          <tr>
+                            <th className="text-left py-3 px-4 font-semibold text-foreground">Product</th>
+                            <th className="text-center py-3 px-4 font-semibold text-foreground w-20">Qty</th>
+                            <th className="text-right py-3 px-4 font-semibold text-foreground w-24">Rate</th>
+                            <th className="text-right py-3 px-4 font-semibold text-foreground w-24">Total</th>
+                            <th className="text-center py-3 px-4 font-semibold text-foreground w-10"></th>
                           </tr>
                         </thead>
                         <tbody>
                           {items.map((item) => (
-                            <tr key={item.productId} className="border-b border-border/50">
-                              <td className="py-3 font-medium">{item.productName}</td>
-                              <td className="py-3">
+                            <tr key={item.productId} className="border-b border-border hover:bg-muted/50 transition-colors">
+                              <td className="py-3 px-4">
+                                <div>
+                                  <p className="font-medium text-foreground">{item.productName}</p>
+                                  <p className="text-xs text-muted-foreground">{item.company}</p>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-center">
                                 <Input
                                   type="number"
                                   min="1"
                                   value={item.quantity}
                                   onChange={(e) => updateItemQuantity(item.productId, parseInt(e.target.value) || 0)}
-                                  className="w-20 text-center mx-auto"
+                                  className="w-16 text-center h-8 text-sm"
                                 />
                               </td>
-                              <td className="py-3 text-right text-muted-foreground">₹{item.rate}</td>
-                              <td className="py-3 text-right font-semibold">₹{item.total}</td>
-                              <td className="py-3 text-center">
+                              <td className="py-3 px-4 text-right font-medium text-muted-foreground">₹{item.rate.toLocaleString()}</td>
+                              <td className="py-3 px-4 text-right font-semibold text-foreground">₹{item.total.toLocaleString()}</td>
+                              <td className="py-3 px-4 text-center">
                                 <Button 
                                   variant="ghost" 
                                   size="icon"
-                                  className="hover:text-destructive"
+                                  className="h-8 w-8 hover:bg-red-100 hover:text-red-600"
                                   onClick={() => removeItem(item.productId)}
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -483,50 +714,71 @@ ${paymentMode === 'Udhaar' && dueDate ? `Due Date: ${new Date(dueDate).toLocaleD
                   <CardTitle className="text-lg">Bill Summary</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span className="font-medium">₹{subtotal.toLocaleString()}</span>
-                    </div>
-                    
-                    {billType === 'pakka' && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">GST (18%)</span>
-                        <span className="font-medium">₹{gstAmount.toLocaleString()}</span>
-                      </div>
-                    )}
-                    
-                    <div className="border-t border-border pt-3">
-                      <div className="flex justify-between">
-                        <span className="font-semibold text-foreground">Total</span>
-                        <span className="text-xl font-bold text-primary">
-                          ₹{total.toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-
-                    {paymentMode === 'Udhaar' && dueDate && (
-                      <div className="bg-warning/10 rounded-lg p-3 mt-4">
-                        <p className="text-sm text-warning-foreground font-medium">
-                          Due Date: {new Date(dueDate).toLocaleDateString('en-IN')}
-                        </p>
-                      </div>
-                    )}
+                  {/* Items Count */}
+                  <div className="flex justify-between text-sm pb-2 border-b border-border">
+                    <span className="text-muted-foreground">Total Items:</span>
+                    <span className="font-semibold">{items.length}</span>
                   </div>
 
-                  <div className="pt-4 space-y-3">
-                    <Button className="w-full" size="lg" onClick={handleGenerateBill}>
-                      <CheckCircle className="w-4 h-4" />
-                      Generate Bill
+                  {/* Subtotal */}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Subtotal:</span>
+                    <span className="font-medium">₹{subtotal.toLocaleString()}</span>
+                  </div>
+
+                  {/* GST */}
+                  {billType === 'pakka' && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">GST (18%):</span>
+                      <span className="font-medium">₹{gstAmount.toLocaleString()}</span>
+                    </div>
+                  )}
+
+                  {/* Total */}
+                  <div className="flex justify-between text-lg font-bold pt-2 border-t-2 border-primary">
+                    <span>Total:</span>
+                    <span className="text-primary">₹{total.toLocaleString()}</span>
+                  </div>
+
+                  {/* Due Date Alert */}
+                  {paymentMode === 'Udhaar' && dueDate && (
+                    <div className="bg-warning/10 rounded-lg p-3 mt-2">
+                      <p className="text-xs text-muted-foreground">Due Date</p>
+                      <p className="text-sm font-semibold text-warning-foreground">
+                        {new Date(dueDate).toLocaleDateString('en-IN')}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Buttons */}
+                  <div className="space-y-2 pt-4">
+                    <Button 
+                      onClick={handleGenerateBill}
+                      disabled={items.length === 0 || loading}
+                      className="w-full gap-2"
+                      size="lg"
+                    >
+                      <Plus className="w-4 h-4" />
+                      {loading ? 'Generating...' : 'Generate Bill'}
                     </Button>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Button variant="outline" onClick={handlePrintBill} disabled={items.length === 0}>
-                        <Printer className="w-4 h-4" />
-                        Print
-                      </Button>
-                      <Button variant="outline" onClick={handleDownloadBill} disabled={items.length === 0}>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        onClick={handleDownloadBill}
+                        disabled={items.length === 0}
+                        variant="outline"
+                        className="gap-2"
+                      >
                         <Download className="w-4 h-4" />
                         Download
+                      </Button>
+                      <Button
+                        onClick={handlePrintBill}
+                        disabled={items.length === 0}
+                        variant="outline"
+                        className="gap-2"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print
                       </Button>
                     </div>
                   </div>

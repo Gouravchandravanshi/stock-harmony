@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { 
   Package, 
@@ -9,11 +10,12 @@ import {
   FileText,
   ArrowUpRight,
   ArrowDownRight,
+  CreditCard,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { mockDashboardStats, mockProducts, mockPendingBills } from '@/data/mockData';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 import { 
   AreaChart, 
   Area, 
@@ -21,12 +23,82 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer 
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
+import { productAPI, billAPI } from '@/services/api';
 
 export default function Dashboard() {
-  const stats = mockDashboardStats;
-  const lowStockProducts = mockProducts.filter(p => p.quantity <= p.quantityAlert);
+  const [stats, setStats] = useState({
+    totalProducts: 0,
+    lowStockCount: 0,
+    todaySales: 0,
+    todayCashSales: 0,
+    todayUdhaarSales: 0,
+    pendingUdhaarAmount: 0,
+    monthlySalesData: [],
+  });
+  const [lowStockProducts, setLowStockProducts] = useState([]);
+  const [pendingBills, setPendingBills] = useState([]);
+  const [categorySales, setCategorySales] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch products for total and low stock count
+      const productsData = await productAPI.getAll();
+      const lowStockProds = productsData.filter(p => p.quantity <= p.quantityAlert);
+      
+      // Fetch bill statistics
+      const billStatsData = await billAPI.getStats();
+      
+      // Fetch pending bills
+      const pendingBillsData = await billAPI.getPending();
+
+      // Fetch category sales for pie chart
+      const categorySalesData = await billAPI.getCategorySalesReport();
+
+      setStats({
+        totalProducts: productsData.length,
+        lowStockCount: lowStockProds.length,
+        todaySales: billStatsData.todaySales,
+        todayCashSales: billStatsData.todayCashSales,
+        todayUdhaarSales: billStatsData.todayUdhaarSales,
+        pendingUdhaarAmount: billStatsData.pendingUdhaarAmount,
+        monthlySalesData: billStatsData.monthlySalesData,
+      });
+      
+      setLowStockProducts(lowStockProds.slice(0, 5));
+      // Filter to show ONLY Udhaar bills in pending section
+      const udhaarPendingBills = pendingBillsData.filter(bill => bill.paymentMode === 'Udhaar' && bill.status === 'pending');
+      setPendingBills(udhaarPendingBills.slice(0, 5));
+      
+      // Prepare data for pie chart (top 5 products)
+      const topProducts = categorySalesData
+        .slice(0, 5)
+        .map((item, idx) => ({
+          name: item.productName,
+          value: item.totalSales,
+          color: ['#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'][idx],
+        }));
+      setCategorySales(topProducts);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -73,14 +145,13 @@ export default function Dashboard() {
             title="Today's Sales"
             value={`₹${stats.todaySales.toLocaleString()}`}
             icon={TrendingUp}
-            trend={{ value: 8, positive: true }}
+            subtext={`Cash: ₹${stats.todayCashSales.toLocaleString()} | Udhaar: ₹${stats.todayUdhaarSales.toLocaleString()}`}
             color="success"
           />
           <StatCard
             title="Pending Udhaar"
-            value={`₹${stats.pendingUdhaar.toLocaleString()}`}
-            icon={IndianRupee}
-            trend={{ value: 3, positive: false }}
+            value={`₹${stats.pendingUdhaarAmount.toLocaleString()}`}
+            icon={CreditCard}
             color="warning"
           />
         </div>
@@ -205,14 +276,14 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {mockPendingBills.map((bill) => (
-                    <tr key={bill.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                  {pendingBills.map((bill) => (
+                    <tr key={bill._id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                       <td className="py-3 px-4 text-sm font-medium">{bill.billNumber}</td>
                       <td className="py-3 px-4 text-sm">{bill.customer.name}</td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">{bill.customer.mobile}</td>
                       <td className="py-3 px-4 text-sm font-semibold">₹{bill.total.toLocaleString()}</td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
-                        {bill.dueDate?.toLocaleDateString('en-IN')}
+                        {bill.dueDate ? new Date(bill.dueDate).toLocaleDateString('en-IN') : 'N/A'}
                       </td>
                       <td className="py-3 px-4">
                         <span className="alert-badge alert-badge-warning">Pending</span>
@@ -251,7 +322,7 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, trend, color = 'primary', urgent }) {
+function StatCard({ title, value, icon: Icon, trend, color = 'primary', urgent, subtext }) {
   const colorClasses = {
     primary: 'bg-primary/10 text-primary',
     success: 'bg-success/10 text-success',
@@ -275,6 +346,7 @@ function StatCard({ title, value, icon: Icon, trend, color = 'primary', urgent }
       <div className="mt-4">
         <p className="text-2xl font-bold text-foreground">{value}</p>
         <p className="text-sm text-muted-foreground mt-1">{title}</p>
+        {subtext && <p className="text-xs text-muted-foreground mt-2">{subtext}</p>}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { ArrowLeft, Package, Save, IndianRupee } from 'lucide-react';
@@ -13,12 +13,14 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { productCategories } from '@/data/mockData';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
+import { productAPI } from '@/services/api';
 
 export default function AddProduct() {
   const navigate = useNavigate();
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     company: '',
@@ -30,15 +32,51 @@ export default function AddProduct() {
     sellingPriceUdhaar: '',
   });
 
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  const fetchCategories = async () => {
+    try {
+      const data = await productAPI.getCategories();
+      setCategories(data);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      toast.error('Failed to load categories');
+    }
+  };
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // For demo, show success and navigate
-    toast.success('Product added successfully!');
-    navigate('/products');
+    
+    // Validation
+    if (!formData.name || !formData.company || !formData.category) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await productAPI.create({
+        ...formData,
+        quantity: parseInt(formData.quantity) || 0,
+        quantityAlert: parseInt(formData.quantityAlert) || 10,
+        buyingPrice: parseFloat(formData.buyingPrice),
+        sellingPriceCash: parseFloat(formData.sellingPriceCash),
+        sellingPriceUdhaar: parseFloat(formData.sellingPriceUdhaar),
+      });
+      toast.success('Product added successfully!');
+      navigate('/products');
+    } catch (error) {
+      console.error('Error creating product:', error);
+      toast.error('Failed to add product');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -101,7 +139,7 @@ export default function AddProduct() {
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {productCategories.map(cat => (
+                      {categories.map(cat => (
                         <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                       ))}
                     </SelectContent>

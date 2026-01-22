@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { 
   Package, 
@@ -9,9 +9,11 @@ import {
   Trash2, 
   AlertTriangle,
   ChevronDown,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { 
   Select, 
   SelectContent, 
@@ -20,8 +22,8 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { Link, useSearchParams } from 'react-router-dom';
-import { mockProducts, productCategories } from '@/data/mockData';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -30,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { productAPI } from '@/services/api';
 
 export default function Products() {
   const [searchParams] = useSearchParams();
@@ -39,8 +42,87 @@ export default function Products() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [showLowStock, setShowLowStock] = useState(filterParam === 'low-stock');
   const [deleteDialog, setDeleteDialog] = useState(null);
+  const [editDialog, setEditDialog] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editLoading, setEditLoading] = useState(false);
 
-  const filteredProducts = mockProducts.filter(product => {
+  // Fetch products and categories on mount
+  useEffect(() => {
+    fetchProducts();
+    fetchCategories();
+  }, []);
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      const data = await productAPI.getAll();
+      setProducts(data);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      toast.error('Failed to load products');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const data = await productAPI.getCategories();
+      setCategories(data);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    }
+  };
+
+  const handleEditClick = (product) => {
+    setEditFormData({ ...product });
+    setEditDialog(product._id);
+  };
+
+  const handleEditSave = async () => {
+    try {
+      if (!editFormData.name || !editFormData.company || !editFormData.category) {
+        toast.error('Please fill in all required fields');
+        return;
+      }
+
+      setEditLoading(true);
+      await productAPI.update(editDialog, {
+        name: editFormData.name,
+        company: editFormData.company,
+        category: editFormData.category,
+        quantity: parseInt(editFormData.quantity) || 0,
+        quantityAlert: parseInt(editFormData.quantityAlert) || 10,
+        buyingPrice: parseFloat(editFormData.buyingPrice) || 0,
+        sellingPriceCash: parseFloat(editFormData.sellingPriceCash) || 0,
+        sellingPriceUdhaar: parseFloat(editFormData.sellingPriceUdhaar) || 0,
+      });
+      
+      toast.success('Product updated successfully');
+      setEditDialog(null);
+      fetchProducts();
+    } catch (error) {
+      toast.error(error.message || 'Failed to update product');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleDelete = async (productId) => {
+    try {
+      await productAPI.delete(productId);
+      toast.success('Product deleted successfully');
+      setDeleteDialog(null);
+      fetchProducts();
+    } catch (error) {
+      toast.error('Failed to delete product');
+    }
+  };
+
+  const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(search.toLowerCase()) ||
                           product.company.toLowerCase().includes(search.toLowerCase());
     const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
@@ -84,7 +166,7 @@ export default function Products() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
-              {productCategories.map(cat => (
+              {categories.map(cat => (
                 <SelectItem key={cat} value={cat}>{cat}</SelectItem>
               ))}
             </SelectContent>
@@ -151,16 +233,19 @@ export default function Products() {
                       <td className="py-4 px-4 font-medium text-foreground">₹{product.sellingPriceUdhaar}</td>
                       <td className="py-4 px-4">
                         <div className="flex items-center justify-center gap-2">
-                          <Link to={`/products/edit/${product.id}`}>
-                            <Button variant="ghost" size="icon" className="hover:text-primary">
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                          </Link>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="hover:text-primary"
+                            onClick={() => handleEditClick(product)}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
                           <Button 
                             variant="ghost" 
                             size="icon" 
                             className="hover:text-destructive"
-                            onClick={() => setDeleteDialog(product.id)}
+                            onClick={() => setDeleteDialog(product._id)}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -173,7 +258,7 @@ export default function Products() {
             </table>
           </div>
 
-          {filteredProducts.length === 0 && (
+                {filteredProducts.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Package className="w-12 h-12 text-muted-foreground mb-4" />
               <h3 className="font-semibold text-foreground">No products found</h3>
@@ -197,8 +282,128 @@ export default function Products() {
               <Button variant="outline" onClick={() => setDeleteDialog(null)}>
                 Cancel
               </Button>
-              <Button variant="destructive" onClick={() => setDeleteDialog(null)}>
+              <Button 
+                variant="destructive" 
+                onClick={() => handleDelete(deleteDialog)}
+              >
                 Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Dialog */}
+        <Dialog open={!!editDialog} onOpenChange={() => setEditDialog(null)}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Edit Product</DialogTitle>
+              <DialogDescription>
+                Update product information and pricing
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="input-label">Product Name *</Label>
+                  <Input
+                    value={editFormData.name || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                    placeholder="Enter product name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="input-label">Company *</Label>
+                  <Input
+                    value={editFormData.company || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, company: e.target.value })}
+                    placeholder="Enter company name"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="input-label">Category *</Label>
+                <Select 
+                  value={editFormData.category || 'all'} 
+                  onValueChange={(val) => setEditFormData({ ...editFormData, category: val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="input-label">Stock Quantity</Label>
+                  <Input
+                    type="number"
+                    value={editFormData.quantity || 0}
+                    onChange={(e) => setEditFormData({ ...editFormData, quantity: e.target.value })}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="input-label">Stock Alert Level</Label>
+                  <Input
+                    type="number"
+                    value={editFormData.quantityAlert || 10}
+                    onChange={(e) => setEditFormData({ ...editFormData, quantityAlert: e.target.value })}
+                    placeholder="10"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="input-label">Buying Price</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={editFormData.buyingPrice || 0}
+                  onChange={(e) => setEditFormData({ ...editFormData, buyingPrice: e.target.value })}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="input-label">Selling Price (Cash)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={editFormData.sellingPriceCash || 0}
+                    onChange={(e) => setEditFormData({ ...editFormData, sellingPriceCash: e.target.value })}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="input-label">Selling Price (Udhaar)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={editFormData.sellingPriceUdhaar || 0}
+                    onChange={(e) => setEditFormData({ ...editFormData, sellingPriceUdhaar: e.target.value })}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditDialog(null)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleEditSave}
+                disabled={editLoading}
+              >
+                {editLoading ? 'Saving...' : 'Save Changes'}
               </Button>
             </DialogFooter>
           </DialogContent>
