@@ -27,6 +27,7 @@ export const getProductById = async (req, res) => {
 export const createProduct = async (req, res) => {
   const {
     name,
+    technicalName,
     company,
     category,
     quantity,
@@ -44,6 +45,7 @@ export const createProduct = async (req, res) => {
 
     const product = new Product({
       name,
+      technicalName,
       company,
       category,
       quantity: quantity || 0,
@@ -70,6 +72,7 @@ export const updateProduct = async (req, res) => {
 
     // Update fields
     if (req.body.name) product.name = req.body.name;
+    if (req.body.technicalName !== undefined) product.technicalName = req.body.technicalName;
     if (req.body.company) product.company = req.body.company;
     if (req.body.category) product.category = req.body.category;
     if (req.body.quantity !== undefined) product.quantity = req.body.quantity;

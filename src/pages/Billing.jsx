@@ -24,10 +24,13 @@ export default function Billing() {
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [allBills, setAllBills] = useState([]);
+  const [viewType, setViewType] = useState('all');
 
-  // Fetch products on mount
+  // Fetch products and bills on mount
   useEffect(() => {
     fetchProducts();
+    fetchAllBills();
   }, []);
 
   const fetchProducts = async () => {
@@ -174,11 +177,23 @@ export default function Billing() {
       
       // Refresh products in case of quantity updates
       fetchProducts();
+      // update list of bills
+      fetchAllBills();
     } catch (error) {
       console.error('Error generating bill:', error);
       toast.error('Failed to generate bill');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAllBills = async () => {
+    try {
+      const data = await billAPI.getAll();
+      setAllBills(data);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load bills');
     }
   };
 
@@ -787,6 +802,63 @@ ${paymentMode === 'Udhaar' && dueDate ? `Due Date: ${new Date(dueDate).toLocaleD
             </div>
           </div>
         </Tabs>
+
+      {/* existing bills list */}
+      <div className="mt-10">
+        <h2 className="text-xl font-semibold mb-4">Existing Bills</h2>
+        <div className="flex gap-2 mb-4">
+          <Button
+            variant={viewType === 'all' ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => setViewType('all')}
+          >
+            All
+          </Button>
+          <Button
+            variant={viewType === 'kaccha' ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => setViewType('kaccha')}
+          >
+            Kaccha
+          </Button>
+          <Button
+            variant={viewType === 'pakka' ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => setViewType('pakka')}
+          >
+            Pakka
+          </Button>
+        </div>
+        <div className="bg-card rounded-xl border border-border overflow-hidden shadow-card">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="py-2 px-4 text-left">Bill #</th>
+                  <th className="py-2 px-4 text-left">Type</th>
+                  <th className="py-2 px-4 text-left">Customer</th>
+                  <th className="py-2 px-4 text-left">Total</th>
+                  <th className="py-2 px-4 text-left">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allBills
+                  .filter(b => viewType === 'all' || b.billType === viewType)
+                  .map(b => (
+                    <tr key={b._id}>
+                      <td className="py-2 px-4">{b.billNumber}</td>
+                      <td className="py-2 px-4 capitalize">{b.billType}</td>
+                      <td className="py-2 px-4">{b.customer.name}</td>
+                      <td className="py-2 px-4">₹{b.total.toLocaleString()}</td>
+                      <td className="py-2 px-4">{new Date(b.createdAt).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       </div>
     </DashboardLayout>
   );

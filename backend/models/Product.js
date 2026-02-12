@@ -7,6 +7,12 @@ const productSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    technicalName: {
+      type: String,
+      required: false,
+      trim: true,
+      description: 'A standardized technical identifier or label for the product',
+    },
     company: {
       type: String,
       required: true,

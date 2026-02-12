@@ -9,6 +9,7 @@ import {
   Leaf,
   ChevronLeft,
   ChevronRight,
+  ShoppingCart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -19,31 +20,52 @@ const navItems = [
   { icon: Package, label: 'Products', href: '/products' },
   { icon: Receipt, label: 'Billing', href: '/billing' },
   { icon: FileText, label: 'Reports', href: '/reports' },
+  { icon: ShoppingCart, label: 'Purchases', href: '/company-purchases' },
   { icon: Settings, label: 'Settings', href: '/settings' },
 ];
 
-export function Sidebar() {
+export function Sidebar({ open = false, onClose = () => {} }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside
-      className={cn(
-        'fixed left-0 top-0 h-screen bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 z-50',
-        collapsed ? 'w-20' : 'w-64'
+    // overlay backdrop for mobile when open
+    <>
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/30 z-40 md:hidden"
+          onClick={onClose}
+        />
       )}
-    >
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-sidebar-border">
-        <div className="w-10 h-10 rounded-xl bg-sidebar-primary flex items-center justify-center">
-          <Leaf className="w-6 h-6 text-sidebar-primary-foreground" />
-        </div>
-        {!collapsed && (
-          <div className="animate-fade-in">
-            <h1 className="font-bold text-lg text-sidebar-foreground">AgroStock</h1>
-            <p className="text-xs text-sidebar-foreground/60">Inventory System</p>
-          </div>
+      <aside
+        className={cn(
+          'fixed left-0 top-0 h-screen bg-sidebar text-sidebar-foreground flex flex-col transition-transform duration-300 z-50',
+          collapsed ? 'w-20' : 'w-64',
+          'transform',
+          open ? 'translate-x-0' : '-translate-x-full',
+          'md:translate-x-0' // always show on md+
         )}
+      >
+      {/* Logo */}
+      <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-sidebar-border">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-sidebar-primary flex items-center justify-center">
+            <Leaf className="w-6 h-6 text-sidebar-primary-foreground" />
+          </div>
+          {!collapsed && (
+            <div className="animate-fade-in">
+              <h1 className="font-bold text-lg text-sidebar-foreground">AgroStock</h1>
+              <p className="text-xs text-sidebar-foreground/60">Inventory System</p>
+            </div>
+          )}
+        </div>
+        {/* mobile close button */}
+        <button
+          className="md:hidden text-sidebar-foreground/70 hover:text-sidebar-foreground"
+          onClick={onClose}
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Navigation */}
@@ -61,6 +83,7 @@ export function Sidebar() {
                 isActive && 'active',
                 collapsed && 'justify-center px-3'
               )}
+              onClick={() => open && onClose()}
             >
               <item.icon className="w-5 h-5 flex-shrink-0" />
               {!collapsed && <span>{item.label}</span>}
@@ -107,5 +130,6 @@ export function Sidebar() {
         </Link>
       </div>
     </aside>
+    </>
   );
 }

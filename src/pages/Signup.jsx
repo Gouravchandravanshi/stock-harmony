@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Leaf, User, Store, Phone, Lock, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, Leaf, User, Store, Phone, Lock, CheckCircle2, Mail } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,7 +12,8 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
-    ownerName: '',
+    name: '',
+    email: '',
     storeName: '',
     mobile: '',
     password: '',
@@ -21,10 +24,26 @@ export default function Signup() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const { register } = useAuth();
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // For demo, navigate to dashboard
-    navigate('/dashboard');
+    if (formData.password !== formData.confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (!formData.name || !formData.email || !formData.password) {
+      toast.error('Name, email and password are required');
+      return;
+    }
+    try {
+      await register(formData.name, formData.email, formData.password);
+      toast.success('Account created');
+      navigate('/dashboard');
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Registration failed');
+    }
   };
 
   const passwordMatch = formData.password === formData.confirmPassword && formData.password.length > 0;
@@ -96,15 +115,32 @@ export default function Signup() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="ownerName" className="input-label">Owner Name</Label>
+              <Label htmlFor="name" className="input-label">Full Name</Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
-                  id="ownerName"
-                  name="ownerName"
+                  id="name"
+                  name="name"
                   type="text"
                   placeholder="Your full name"
-                  value={formData.ownerName}
+                  value={formData.name}
+                  onChange={handleChange}
+                  className="pl-10"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="email" className="input-label">Email Address</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={formData.email}
                   onChange={handleChange}
                   className="pl-10"
                   required
@@ -124,7 +160,6 @@ export default function Signup() {
                   value={formData.storeName}
                   onChange={handleChange}
                   className="pl-10"
-                  required
                 />
               </div>
             </div>
@@ -140,8 +175,6 @@ export default function Signup() {
                   placeholder="9876543210"
                   value={formData.mobile}
                   onChange={handleChange}
-                  className="pl-10"
-                  required
                 />
               </div>
             </div>

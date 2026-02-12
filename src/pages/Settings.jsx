@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Settings as SettingsIcon, User, Store, Bell, Shield, Palette } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,8 +7,65 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
+import { userAPI } from '@/services/api';
 
 export default function Settings() {
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [pwdData, setPwdData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await userAPI.getProfile();
+        setProfile(data);
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to load profile');
+      }
+    }
+    load();
+  }, []);
+
+  const handleProfileChange = (e) => {
+    setProfile({ ...profile, [e.target.name]: e.target.value });
+  };
+
+  const handleNotificationToggle = (key) => {
+    setProfile({
+      ...profile,
+      notifications: { ...profile.notifications, [key]: !profile.notifications[key] },
+    });
+  };
+
+  const saveProfile = async () => {
+    try {
+      setLoading(true);
+      await userAPI.updateProfile(profile);
+      toast.success('Profile updated');
+    } catch (err) {
+      console.error(err);
+      toast.error('Could not save profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const changePassword = async () => {
+    if (pwdData.newPassword !== pwdData.confirmPassword) {
+      return toast.error('Passwords do not match');
+    }
+    try {
+      await userAPI.changePassword(pwdData.currentPassword, pwdData.newPassword);
+      toast.success('Password changed');
+      setPwdData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Failed to change password');
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
@@ -30,15 +88,15 @@ export default function Settings() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="input-label">Owner Name</Label>
-                <Input defaultValue="Rajesh Kumar" />
+                <Input name="name" value={profile?.name || ''} onChange={handleProfileChange} />
               </div>
               <div className="space-y-2">
                 <Label className="input-label">Mobile Number</Label>
-                <Input defaultValue="9876543210" />
+                <Input name="mobile" value={profile?.mobile || ''} onChange={handleProfileChange} />
               </div>
               <div className="space-y-2">
                 <Label className="input-label">Email</Label>
-                <Input type="email" defaultValue="rajesh@example.com" />
+                <Input name="email" type="email" value={profile?.email || ''} onChange={handleProfileChange} />
               </div>
             </div>
             <Button>Save Changes</Button>
@@ -58,18 +116,20 @@ export default function Settings() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="input-label">Store Name</Label>
-                <Input defaultValue="Krishi Kendra" />
+                <Input name="storeName" value={profile?.storeName || ''} onChange={handleProfileChange} />
               </div>
               <div className="space-y-2">
                 <Label className="input-label">GST Number</Label>
-                <Input placeholder="Enter GST number" />
+                <Input name="gstNumber" value={profile?.gstNumber || ''} onChange={handleProfileChange} />
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label className="input-label">Store Address</Label>
-                <Input defaultValue="Main Market, Village Khanpur, Block Sadar" />
+                <Input name="storeAddress" value={profile?.storeAddress || ''} onChange={handleProfileChange} />
               </div>
             </div>
-            <Button>Save Changes</Button>
+            <Button onClick={saveProfile} disabled={loading}>
+              {loading ? 'Saving...' : 'Save Changes'}
+            </Button>
           </CardContent>
         </Card>
 
@@ -88,7 +148,7 @@ export default function Settings() {
                 <p className="font-medium">Low Stock Alerts</p>
                 <p className="text-sm text-muted-foreground">Get notified when stock falls below alert level</p>
               </div>
-              <Switch defaultChecked />
+              <Switch checked={profile?.notifications?.lowStockAlerts || false} onCheckedChange={() => handleNotificationToggle('lowStockAlerts')} />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
@@ -96,7 +156,7 @@ export default function Settings() {
                 <p className="font-medium">Udhaar Due Reminders</p>
                 <p className="text-sm text-muted-foreground">Remind about pending credit payments</p>
               </div>
-              <Switch defaultChecked />
+              <Switch checked={profile?.notifications?.udhaarReminders || false} onCheckedChange={() => handleNotificationToggle('udhaarReminders')} />
             </div>
             <Separator />
             <div className="flex items-center justify-between">
@@ -104,7 +164,7 @@ export default function Settings() {
                 <p className="font-medium">Daily Sales Summary</p>
                 <p className="text-sm text-muted-foreground">Receive daily sales report</p>
               </div>
-              <Switch />
+              <Switch checked={profile?.notifications?.dailySummary || false} onCheckedChange={() => handleNotificationToggle('dailySummary')} />
             </div>
           </CardContent>
         </Card>
@@ -121,19 +181,34 @@ export default function Settings() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label className="input-label">Current Password</Label>
-              <Input type="password" placeholder="Enter current password" />
+              <Input
+                type="password"
+                placeholder="Enter current password"
+                value={pwdData.currentPassword}
+                onChange={(e) => setPwdData({ ...pwdData, currentPassword: e.target.value })}
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="input-label">New Password</Label>
-                <Input type="password" placeholder="Enter new password" />
+                <Input
+                  type="password"
+                  placeholder="Enter new password"
+                  value={pwdData.newPassword}
+                  onChange={(e) => setPwdData({ ...pwdData, newPassword: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label className="input-label">Confirm Password</Label>
-                <Input type="password" placeholder="Confirm new password" />
+                <Input
+                  type="password"
+                  placeholder="Confirm new password"
+                  value={pwdData.confirmPassword}
+                  onChange={(e) => setPwdData({ ...pwdData, confirmPassword: e.target.value })}
+                />
               </div>
             </div>
-            <Button>Update Password</Button>
+            <Button onClick={changePassword}>Update Password</Button>
           </CardContent>
         </Card>
       </div>

@@ -23,6 +23,7 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
+    technicalName: '',
     company: '',
     category: '',
     quantity: '',
@@ -114,6 +115,17 @@ export default function AddProduct() {
                     value={formData.name}
                     onChange={handleChange}
                     required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="technicalName" className="input-label">Technical Name</Label>
+                  <Input
+                    id="technicalName"
+                    name="technicalName"
+                    placeholder="e.g., CBZ 50WP"
+                    value={formData.technicalName}
+                    onChange={handleChange}
                   />
                 </div>
 

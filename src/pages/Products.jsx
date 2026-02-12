@@ -92,6 +92,7 @@ export default function Products() {
       setEditLoading(true);
       await productAPI.update(editDialog, {
         name: editFormData.name,
+        technicalName: editFormData.technicalName,
         company: editFormData.company,
         category: editFormData.category,
         quantity: parseInt(editFormData.quantity) || 0,
@@ -100,8 +101,6 @@ export default function Products() {
         sellingPriceCash: parseFloat(editFormData.sellingPriceCash) || 0,
         sellingPriceUdhaar: parseFloat(editFormData.sellingPriceUdhaar) || 0,
       });
-      
-      toast.success('Product updated successfully');
       setEditDialog(null);
       fetchProducts();
     } catch (error) {
@@ -186,7 +185,7 @@ export default function Products() {
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-foreground">Product</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-foreground">Product / Technical Name</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-foreground">Category</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-foreground">Stock</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-foreground">Buying Price</th>
@@ -312,6 +311,16 @@ export default function Products() {
                     placeholder="Enter product name"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label className="input-label">Technical Name</Label>
+                  <Input
+                    value={editFormData.technicalName || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, technicalName: e.target.value })}
+                    placeholder="Enter technical name"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="input-label">Company *</Label>
                   <Input

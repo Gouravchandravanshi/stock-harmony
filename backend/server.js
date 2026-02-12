@@ -4,6 +4,13 @@ import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import productRoutes from './routes/productRoutes.js';
 import billRoutes from './routes/billRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+import companyRoutes from './routes/companyRoutes.js';
+import userRoutes from './routes/userRoutes.js';
+
+// (future) middleware for protected routes can be placed here
+import { protect } from './middlewares/authMiddleware.js';
+
 
 // Load environment variables
 dotenv.config();
@@ -19,8 +26,12 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
-app.use('/api/products', productRoutes);
-app.use('/api/bills', billRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+// require authentication for data-modifying endpoints
+app.use('/api/products', protect, productRoutes);
+app.use('/api/bills', protect, billRoutes);
+app.use('/api/company', protect, companyRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

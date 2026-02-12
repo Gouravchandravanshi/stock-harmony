@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Leaf, Mail, Lock, Phone } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,10 +16,24 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loginMethod, setLoginMethod] = useState('email');
 
-  const handleLogin = (e) => {
+  const { login } = useAuth();
+
+  const handleLogin = async (e) => {
     e.preventDefault();
-    // For demo, navigate to dashboard
-    navigate('/dashboard');
+    try {
+      if (loginMethod === 'email' && !email) return toast.error('Email required');
+      if (loginMethod === 'phone' && !phone) return toast.error('Phone required');
+      if (!password) return toast.error('Password required');
+
+      const identifier = loginMethod === 'email' ? email : phone;
+      // calling backend - currently email only
+      const res = await login(identifier, password);
+      toast.success('Logged in successfully');
+      navigate('/dashboard');
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Login failed');
+    }
   };
 
   return (
